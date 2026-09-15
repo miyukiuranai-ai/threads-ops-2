@@ -1,27 +1,49 @@
-// 認証。ログイン画面と定期実行の入口以外は署名付きクッキーが要る。Edge で動く。
+// 管理画面へのアクセス制限と、利用者の受け渡し。
+// Cron のエンドポイントは CRON_SECRET で守られているので対象外にする。
+//
+// 以前は Basic 認証だったが、ブラウザが ID とパスワードを覚えてしまい
+// ログアウトができなかったため、ログイン画面 + 署名付きクッキーに変えている。
 import { NextResponse } from 'next/server';
-import { verifySession, COOKIE_NAME } from './lib/server/auth.mjs';
+import { isAuthConfigured, USER_HEADERS } from '@/lib/server/auth-core.mjs';
+import { SESSION_COOKIE, readSession } from '@/lib/server/session.mjs';
+
+export const config = {
+  matcher: ['/((?!api/cron|_next/static|_next/image|favicon.ico).*)'],
+};
+
+const LOGIN_PATH = '/login';
+
+/** 画面側で「どのページか」「誰が見ているか」を判断できるようにヘッダへ載せる。 */
+function pass(request, user) {
+  const headers = new Headers(request.headers);
+  headers.set('x-pathname', request.nextUrl.pathname);
+  if (user) {
+    headers.set(USER_HEADERS.name, user.name);
+    headers.set(USER_HEADERS.role, user.role);
+    headers.set(USER_HEADERS.group, user.group ?? '');
+  }
+  return NextResponse.next({ request: { headers } });
+}
 
 export async function middleware(request) {
   const { pathname } = request.nextUrl;
-  if (pathname.startsWith('/api/cron/')) return NextResponse.next();
-  const token = request.cookies.get(COOKIE_NAME)?.value;
-  const session = await verifySession(token);
-  if (pathname === '/login') {
-    if (session) return NextResponse.redirect(new URL('/', request.url));
-    return NextResponse.next();
-  }
-  if (!session) {
-    if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'ログインが必要です' }, { status: 401 });
-    const url = new URL('/login', request.url);
-    url.searchParams.set('next', pathname);
-    return NextResponse.redirect(url);
-  }
-  const res = NextResponse.next();
-  res.headers.set('x-to2-user', encodeURIComponent(session.user));
-  return res;
-}
 
-export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|robots.txt).*)'],
-};
+  // 未設定ならそのまま通す（ローカル開発でいちいち聞かれないように）
+  if (!isAuthConfigured()) return pass(request, null);
+
+  const user = await readSession(request.cookies.get(SESSION_COOKIE)?.value);
+
+  if (pathname === LOGIN_PATH) {
+    // ログイン済みなら、ログイン画面には留まらせない
+    if (user) return NextResponse.redirect(new URL('/', request.url));
+    return pass(request, null);
+  }
+
+  if (!user) {
+    const to = new URL(LOGIN_PATH, request.url);
+    if (pathname !== '/') to.searchParams.set('next', pathname + request.nextUrl.search);
+    return NextResponse.redirect(to);
+  }
+
+  return pass(request, user);
+}

@@ -1,115 +1,129 @@
-import Link from 'next/link';
-import { pageContext } from '../_lib/session';
-import { listPosts, STATUS_JA } from '@/lib/server/posts.mjs';
-import { typeName, tierOf } from '@/lib/server/post-types.mjs';
-import { VERDICT_JA } from '@/lib/server/impressions.mjs';
-import { formatJst, slotLabel, jstDate, addDays } from '@/lib/server/time.mjs';
-import { approveAction, rejectAction, holdAction, editAction, deleteThreadAction, removeMediaAction } from '../_actions/posts';
-import SubmitButton from '../_components/SubmitButton';
-import MediaUploader from '../_components/MediaUploader';
-import AccountFilter from '../_components/AccountFilter';
+import { listAccounts, listPosts } from '@/lib/server/repo.mjs';
+import { getCurrentUser, filterAccountsForUser } from '@/lib/server/auth.mjs';
+import { toJstLabel } from '@/lib/server/schedule.mjs';
+import { LATE_LIMIT_MINUTES, minutesLate } from '@/lib/server/post-time.mjs';
+import { AUTO_REVIEW_AT } from '@/lib/server/auto-review.mjs';
+import PostRow from './PostRow';
 
 export const dynamic = 'force-dynamic';
 
-const TABS = [
-  ['pending', '承認待ち・保留', ['pending', 'held']],
-  ['approved', '承認済み', ['approved']],
-  ['missed', '時刻切れ', ['missed', 'failed']],
-  ['posted', '投稿済み', ['posted', 'deleted']],
-  ['rejected', '却下', ['rejected']],
-  ['all', 'すべて', null],
+/** datetime-local 用に日本時間の "YYYY-MM-DDTHH:MM" を作る。 */
+function toLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(new Date(iso).getTime() + 9 * 3600000);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 16);
+}
+
+const FILTERS = [
+  { key: 'queue', label: '承認待ち・保留', statuses: ['pending', 'held', 'draft'] },
+  { key: 'approved', label: '承認済み', statuses: ['approved', 'scheduled'] },
+  { key: 'missed', label: '時刻切れ', statuses: ['missed'] },
+  { key: 'posted', label: '投稿済み', statuses: ['posted', 'failed'] },
+  { key: 'rejected', label: '却下', statuses: ['rejected'] },
+  { key: 'all', label: 'すべて', statuses: null },
 ];
 
 export default async function PostsPage({ searchParams }) {
-  const { session, selected, accountIds, sp } = await pageContext(searchParams);
-  const tab = TABS.find((t) => t[0] === sp.tab) || TABS[0];
-  const from = tab[0] === 'all' || tab[0] === 'posted' || tab[0] === 'rejected' ? new Date(addDays(jstDate(), -7) + 'T00:00:00+09:00').toISOString() : undefined;
-  const posts = await listPosts({ accountIds, statuses: tab[2] || undefined, from, limit: 400, orderBy: ['scheduledAt', tab[0] === 'posted' || tab[0] === 'rejected' ? 'desc' : 'asc'] });
-  const q = (t) => `/posts?tab=${t}${selected ? `&account=${selected.id}` : ''}`;
-  return (
-    <div>
-      <h1>投稿予定</h1>
-      <AccountFilter selected={selected} base={`/posts?tab=${tab[0]}`} />
-      <div className="tabs">{TABS.map((t) => <Link key={t[0]} href={q(t[0])} className={t[0] === tab[0] ? 'active' : ''}>{t[1]}</Link>)}</div>
-      <div className="card">
-        {!posts.length && <p className="muted">ありません</p>}
-        {posts.map((p) => <PostRow key={p.id} p={p} user={session.user} />)}
-      </div>
-    </div>
-  );
-}
+  const params = await searchParams;
 
-function PostRow({ p, user }) {
-  const editable = ['pending', 'held', 'approved'].includes(p.status);
+  const user = await getCurrentUser();
+
+  let accounts = [];
+  let dbError = null;
+  try {
+    accounts = filterAccountsForUser(await listAccounts(), user);
+  } catch (err) {
+    dbError = err.message;
+  }
+
+  const selectedId = params?.account ?? accounts[0]?.id ?? null;
+  const account = accounts.find((a) => a.id === selectedId) ?? null;
+  const filterKey = params?.filter ?? 'queue';
+  const filter = FILTERS.find((f) => f.key === filterKey) ?? FILTERS[0];
+
+  const all = account ? await listPosts(account.id) : [];
+  const posts = filter.statuses ? all.filter((p) => filter.statuses.includes(p.status)) : all;
+
+  const counts = all.reduce((acc, p) => {
+    acc[p.status] = (acc[p.status] ?? 0) + 1;
+    return acc;
+  }, {});
+
   return (
-    <div className="post">
-      <div className="head">
-        <b>{slotLabel(p.slot)}</b>
-        <span>{p.plannedDate}</span>
-        <span>@{p.accountName}</span>
-        <span className="badge">{p.slotName}</span>
-        <span className={`badge tier-${tierOf(p.type)}`}>{typeName(p.type)}</span>
-        <span className={`badge ${p.status === 'posted' ? 'ok' : p.status === 'held' || p.status === 'missed' ? 'warn' : p.status === 'failed' || p.status === 'rejected' ? 'danger' : ''}`}>{STATUS_JA[p.status] || p.status}</span>
-        {p.switchedFrom && <span className="badge warn" title={p.switchReason}>切り替え</span>}
-        {p.autoApprove && <span className="badge">自動承認</span>}
-        {p.dayPattern && <span className="muted">構成: {p.dayPattern}</span>}
-        {p.status === 'posted' && (
-          <span className="muted">1時間後 {p.snap1h?.views ?? '-'} / 3時間後 {p.snap3h?.views ?? '-'} {p.verdict3h ? <span className={`badge ${p.verdict3h === 'bad' ? 'danger' : p.verdict3h === 'buzz' || p.verdict3h === 'good' ? 'ok' : ''}`}>{VERDICT_JA[p.verdict3h]}</span> : null}</span>
-        )}
-        {p.postedAt && <span className="muted">投稿 {formatJst(p.postedAt)}</span>}
-        {p.permalink && <a href={p.permalink} target="_blank" rel="noreferrer">Threads で見る</a>}
+    <>
+      <div className="page-head">
+        <div>
+          <h1>投稿予定</h1>
+          <p className="page-desc">
+            承認した投稿だけが予定時刻に自動投稿されます。
+            {AUTO_REVIEW_AT} を過ぎても承認待ちのものは、文章だけの投稿を自動で承認し、
+            画像が必要な投稿は自動で却下します。
+          </p>
+        </div>
       </div>
-      {p.holdReason && <p className="notice">{p.holdReason}</p>}
-      {p.rejectedReason && <p className="muted">却下理由: {p.rejectedReason}</p>}
-      {editable ? (
-        <form action={editAction} className="stack">
-          <input type="hidden" name="id" value={p.id} />
-          <textarea name="body" className="body" defaultValue={p.body} />
-          <div className="row">
-            <span style={{ flex: '0 0 120px' }}><label>合言葉</label><input name="keyword" defaultValue={p.keyword || ''} /></span>
-            <span style={{ flex: '0 0 110px' }}><label>予定時刻</label><input name="slot" defaultValue={p.slot} placeholder="HH:MM" /></span>
-            <span style={{ flex: '0 0 150px' }}><label>日付</label><input name="plannedDate" type="date" defaultValue={p.plannedDate} /></span>
-            <span style={{ flex: 1 }}><label>狙い</label><input name="intent" defaultValue={p.intent || ''} /></span>
+
+      {dbError && (
+        <div className="notice">
+          <strong>Firestore に接続できていません。</strong>
+          <div style={{ marginTop: 6 }}>{dbError}</div>
+        </div>
+      )}
+
+      <div className="filter-row">
+        {FILTERS.map((f) => {
+          const n = f.statuses
+            ? f.statuses.reduce((sum, s) => sum + (counts[s] ?? 0), 0)
+            : all.length;
+          return (
+            <a
+              key={f.key}
+              className="filter-chip"
+              data-active={f.key === filter.key}
+              href={`/posts?account=${selectedId ?? ''}&filter=${f.key}`}
+            >
+              {f.label} {n}
+            </a>
+          );
+        })}
+      </div>
+
+      <section className="card">
+        <div className="card-head">
+          <div className="card-title">
+            ✦ {account ? `@${account.name}` : '名義未選択'}
+            <small>
+              {filter.label} {posts.length}件
+            </small>
           </div>
-          <label>画像の指示 {p.imageRequired && <span className="badge warn">画像必須</span>} {p.imagePlace && <span className="muted">場所: {p.imagePlace}</span>}</label>
-          <input name="imageBrief" defaultValue={p.imageBrief || ''} />
-          <div className="actions"><SubmitButton className="ghost small">保存</SubmitButton></div>
-        </form>
-      ) : (
-        <pre className="terminal">{p.body}</pre>
-      )}
-      <div className="media-list">
-        {(p.media || []).map((m) => (
-          <span className="m" key={m.fingerprint}>
-            {m.kind === 'video' ? '動画' : '画像'} {m.path.split('/').pop().slice(0, 12)}…
-            {editable && (
-              <form action={removeMediaAction} style={{ display: 'inline' }}>
-                <input type="hidden" name="id" value={p.id} /><input type="hidden" name="fingerprint" value={m.fingerprint} />
-                <button className="ghost small" type="submit" style={{ marginLeft: 4, padding: '0 4px' }}>×</button>
-              </form>
-            )}
-          </span>
-        ))}
-        {p.stockId && <span className="m">ストック {p.imageGenre || ''} {p.imageNote || ''}</span>}
-      </div>
-      {editable && (
-        <div className="actions">
-          <MediaUploader postId={p.id} accountId={p.accountId} />
-          {p.status !== 'approved' && <form action={approveAction}><input type="hidden" name="id" value={p.id} /><SubmitButton className="small">承認</SubmitButton></form>}
-          {p.status !== 'held' && <form action={holdAction}><input type="hidden" name="id" value={p.id} /><SubmitButton className="ghost small">保留</SubmitButton></form>}
-          <form action={rejectAction}><input type="hidden" name="id" value={p.id} /><SubmitButton className="ghost small">却下</SubmitButton></form>
         </div>
-      )}
-      {p.status === 'posted' && (
-        <div className="actions">
-          <form action={deleteThreadAction}><input type="hidden" name="id" value={p.id} /><SubmitButton className="danger small" confirm="Threads から削除します。よろしいですか？">Threads から削除</SubmitButton></form>
-        </div>
-      )}
-      {['missed', 'failed', 'rejected'].includes(p.status) && (
-        <div className="actions">
-          <form action={approveAction}><input type="hidden" name="id" value={p.id} /><SubmitButton className="ghost small">承認に戻す（時刻を直してから）</SubmitButton></form>
-        </div>
-      )}
-    </div>
+
+        {posts.length === 0 ? (
+          <div className="empty">
+            該当する投稿はありません。
+            <br />
+            生成するには <code>npm run gen -- --account {account?.name ?? '名義'}</code>
+          </div>
+        ) : (
+          <div>
+            {posts.map((p) => {
+              const label = toJstLabel(p.scheduledAt);
+              const [date, time] = label.split(' ');
+              return (
+                <PostRow
+                  key={p.id}
+                  post={p}
+                  date={date}
+                  time={time}
+                  scheduledLocal={toLocalInput(p.scheduledAt)}
+                  lateMinutes={minutesLate(p.scheduledAt)}
+                  lateLimit={LATE_LIMIT_MINUTES}
+                />
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </>
   );
 }

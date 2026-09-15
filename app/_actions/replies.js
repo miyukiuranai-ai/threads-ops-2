@@ -1,28 +1,47 @@
 'use server';
+
 import { revalidatePath } from 'next/cache';
-import { requireSession } from '../_lib/session';
-import { updateDoc } from '@/lib/server/firebase.mjs';
-import { addTemplate, deleteTemplate } from '@/lib/server/replies.mjs';
-import { nowIso } from '@/lib/server/time.mjs';
+import { getDb, COLLECTIONS } from '@/lib/server/firebase.mjs';
+import { invalidate, TAGS } from '@/lib/server/repo.mjs';
 
-export async function setReplyStatusAction(formData) {
-  await requireSession();
-  const id = String(formData.get('id') || '');
-  const status = String(formData.get('status') || '');
-  if (!['queued', 'skipped'].includes(status)) throw new Error('不正な状態');
-  await updateDoc('replies', id, { status, skipReason: status === 'skipped' ? '手動' : null, classifiedAt: nowIso() });
+/** 除外されたコメントを、返信対象に戻す。 */
+export async function requeueReply(formData) {
+  const id = formData.get('replyId');
+  await getDb()
+    .collection(COLLECTIONS.replies)
+    .doc(id)
+    .set(
+      { status: 'queued', skipReason: null, requeuedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  invalidate(TAGS.replies);
   revalidatePath('/replies');
 }
 
-export async function addTemplateAction(formData) {
-  await requireSession();
-  const accountName = String(formData.get('accountName') || '').trim() || null;
-  await addTemplate({ accountName, category: String(formData.get('category') || '通常誘導'), text: String(formData.get('text') || ''), linkStyle: String(formData.get('linkStyle') || 'profile') });
+/** 返信対象から外す。 */
+export async function skipReply(formData) {
+  const id = formData.get('replyId');
+  await getDb()
+    .collection(COLLECTIONS.replies)
+    .doc(id)
+    .set(
+      { status: 'skipped', skipReason: '手動で除外', classifiedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  invalidate(TAGS.replies);
   revalidatePath('/replies');
 }
 
-export async function deleteTemplateAction(formData) {
-  await requireSession();
-  await deleteTemplate(String(formData.get('id') || ''));
+/** 手動で返信済みにする（画面外で自分が返した場合に使う）。 */
+export async function markRepliedManually(formData) {
+  const id = formData.get('replyId');
+  await getDb()
+    .collection(COLLECTIONS.replies)
+    .doc(id)
+    .set(
+      { status: 'sent', manual: true, sentAt: new Date().toISOString() },
+      { merge: true }
+    );
+  invalidate(TAGS.replies);
   revalidatePath('/replies');
 }

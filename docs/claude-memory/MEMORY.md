@@ -1,0 +1,5 @@
+- [運用の最大の軸](strategy-axis.md) — 「この人だからこそ頼りたい」。不安→肯定、コメントは求めるが求めすぎない、いいねだけはNG。属人型の指示は触らない
+- [評価の代理指標](evaluation-proxy.md) — コメント＋返信→LINE。登録率と表示数の相関は出さない（算術）。LINEの数字は1日遅れ
+- [名義ごとの方針](account-directions.md) — 星蘭は触らない／うたは手動→ON検討／玲月は継続／雅はバズ特化／モデル割当／雅の物語は本人決定待ち
+- [参考として覚えるだけ](reference-models.md) — @hidaka_1192とこん氏の記事は取り入れない。外部収集はApp Reviewしない方針、競合分析は手動でここで
+- [動画の文字消し道具](video-text-remover.md) — Desktop/video-text-remover に ProPainter+模様合成の1コマンド処理。全部ローカル、費用なし

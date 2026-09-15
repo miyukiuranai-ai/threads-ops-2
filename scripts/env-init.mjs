@@ -3,7 +3,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { parseArgs } from '../lib/server/ops.mjs';
+
+/** --key value / --flag の引数を読む */
+function parseArgs(argv) {
+  const out = { _: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const k = a.slice(2);
+      const next = argv[i + 1];
+      if (next != null && !next.startsWith('--')) { out[k] = next; i++; } else out[k] = true;
+    } else out._.push(a);
+  }
+  return out;
+}
 
 const args = parseArgs(process.argv.slice(2));
 const envPath = path.join(process.cwd(), '.env.local');

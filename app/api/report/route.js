@@ -1,27 +1,36 @@
-// レポートの作り直し。ログインクッキーで認可（middleware）。
-import { NextResponse } from 'next/server';
-import { getSession } from '@/app/_lib/session';
-import { generateReport } from '@/lib/server/report.mjs';
-import { withRun } from '@/lib/server/runs.mjs';
-import { jstDate, addDays } from '@/lib/server/time.mjs';
+// 画面の「いま作り直す」から日次レポートを作るためのエンドポイント。
+//
+// サーバーアクションではなく API にしている理由:
+//   Claude の呼び出しに30〜60秒かかり、既定の実行上限に収まらないため。
+// ログイン中の利用者だけが呼べる（middleware がクッキーを確かめる）。
+import { getCurrentUser } from '@/lib/server/auth.mjs';
+import { generateDailyReport } from '@/lib/server/report.mjs';
+import { jstDate } from '@/lib/server/signups.mjs';
 
-export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 export async function POST(request) {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  const body = await request.json().catch(() => ({}));
-  const date = body.date || addDays(jstDate(), -1);
+  const user = await getCurrentUser();
+  if (!user?.name) {
+    return Response.json({ error: 'ログインが必要です。' }, { status: 401 });
+  }
+
+  let date = null;
   try {
-    const r = await withRun('report', async (results) => {
-      const rep = await generateReport(date);
-      results.push({ date, alerts: (rep.alerts || []).length });
-      return { message: `レポート ${date}`, usage: rep.usage };
-    }, { by: session.user });
-    return NextResponse.json({ ok: true, date, runId: r.runId });
-  } catch (e) {
-    return NextResponse.json({ ok: false, error: String(e.message || e) }, { status: 500 });
+    const body = await request.json();
+    if (body?.date && /^\d{4}-\d{2}-\d{2}$/.test(body.date)) date = body.date;
+  } catch {
+    // 本文なしなら昨日ぶん
+  }
+  if (date && date >= jstDate()) {
+    return Response.json({ error: '今日より前の日付を選んでください（反応は翌日に集計されます）。' }, { status: 400 });
+  }
+
+  try {
+    const report = await generateDailyReport({ date });
+    return Response.json({ ok: true, date: report.date, skipped: report.skipped ?? null });
+  } catch (err) {
+    return Response.json({ error: err.message }, { status: 500 });
   }
 }

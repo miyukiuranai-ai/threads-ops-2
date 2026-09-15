@@ -1,27 +1,42 @@
-import { pageContext } from '../_lib/session';
-import { listMessages } from '@/lib/server/chat.mjs';
-import { formatJst } from '@/lib/server/time.mjs';
-import ChatBox from './ChatBox';
+import { getCurrentUser } from '@/lib/server/auth.mjs';
+import { loadMessages } from '@/lib/server/chat.mjs';
+import { MODELS } from '@/lib/server/claude.mjs';
+import ChatPanel from './ChatPanel';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ChatPage({ searchParams }) {
-  await pageContext(searchParams);
-  const messages = await listMessages({ limit: 80 });
+/**
+ * 相談のページ。
+ * 方針（CLAUDE.md と docs/claude-memory）と、いまのレポート・名義の設定を踏まえて Claude が答える。
+ * 会話は全員で共有される。設定の変更はここからはできない。
+ */
+export default async function ChatPage() {
+  const user = await getCurrentUser();
+  let messages = [];
+  let dbError = null;
+  try {
+    messages = await loadMessages({ limit: 80 });
+  } catch (err) {
+    dbError = err.message;
+  }
+
+  const modelOptions = Object.entries(MODELS).map(([key, m]) => ({ key, label: m.label ?? key }));
+
   return (
-    <div>
-      <h1>相談</h1>
-      <p className="muted">全員で共有する会話。Claude が方針（CLAUDE.md と判断メモ）・最新レポート・名義設定・監視リスト・今日の暦を踏まえて答えます。道具: list_drafts / set_day_directive / generate_posts / edit_draft / delete_post / update_persona / set_impression_lines。1回ごとに API の費用がかかります。</p>
-      <div className="card chat">
-        {messages.map((m) => (
-          <div key={m.id} className={`msg ${m.role}`}>
-            <div className="who">{m.role === 'tool' ? '実行' : m.name || m.role} · {formatJst(m.createdAt)}{m.usage?.usd ? ` · $${m.usage.usd.toFixed(3)}` : ''}</div>
-            {m.text}
+    <>
+      <section className="card">
+        <div className="card-head">
+          <div className="card-title">
+            ✦ 相談 <small>全員で同じ会話を共有します</small>
           </div>
-        ))}
-        {!messages.length && <p className="muted">まだ会話がありません。</p>}
-      </div>
-      <ChatBox />
-    </div>
+        </div>
+        <p className="stat-note" style={{ marginTop: 0 }}>
+          運用の方針、最新のレポート、名義の設定、監視リストを踏まえて答えます。
+          ここからは設定を変えられないので、決まったことはキャラ設定やレポートの返事ボタンで反映してください。
+        </p>
+        {dbError && <p className="over">{dbError}</p>}
+        <ChatPanel initialMessages={messages} userName={user?.name ?? '運用者'} modelOptions={modelOptions} />
+      </section>
+    </>
   );
 }

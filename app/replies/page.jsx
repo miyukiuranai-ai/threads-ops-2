@@ -1,70 +1,133 @@
-import { pageContext } from '../_lib/session';
-import { listRepliesForView, listTemplates, REPLY_CATEGORIES } from '@/lib/server/replies.mjs';
-import { formatJst } from '@/lib/server/time.mjs';
-import { setReplyStatusAction, addTemplateAction, deleteTemplateAction } from '../_actions/replies';
-import SubmitButton from '../_components/SubmitButton';
-import AccountFilter from '../_components/AccountFilter';
+import { listAccounts, listRepliesForAccount } from '@/lib/server/repo.mjs';
+import { getCurrentUser, filterAccountsForUser } from '@/lib/server/auth.mjs';
+import { toJstLabel } from '@/lib/server/schedule.mjs';
+import { farmerThreshold } from '@/lib/server/replies.mjs';
+import ReplyRow from './ReplyRow';
 
 export const dynamic = 'force-dynamic';
-const STATUS_JA = { new: '未判定', queued: '送信待ち', skipped: '送らない', sent: '送信済み', failed: '失敗' };
+
+const FILTERS = [
+  { key: 'skipped', label: '除外された人', statuses: ['skipped'] },
+  { key: 'queued', label: '返信予定', statuses: ['queued'] },
+  { key: 'sent', label: '返信済み', statuses: ['sent'] },
+  { key: 'new', label: '未判定', statuses: ['new'] },
+  { key: 'all', label: 'すべて', statuses: null },
+];
 
 export default async function RepliesPage({ searchParams }) {
-  const { selected, accountIds, accounts, sp } = await pageContext(searchParams);
-  const status = typeof sp.status === 'string' ? sp.status : undefined;
-  const [replies, templates] = await Promise.all([listRepliesForView({ accountIds, status }), listTemplates()]);
+  const params = await searchParams;
+
+  const user = await getCurrentUser();
+
+  let accounts = [];
+  let dbError = null;
+  try {
+    accounts = filterAccountsForUser(await listAccounts(), user);
+  } catch (err) {
+    dbError = err.message;
+  }
+
+  const selectedId = params?.account ?? accounts[0]?.id ?? null;
+  const account = accounts.find((a) => a.id === selectedId) ?? null;
+  const filterKey = params?.filter ?? 'skipped';
+  const filter = FILTERS.find((f) => f.key === filterKey) ?? FILTERS[0];
+
+  const all = account ? await listRepliesForAccount(account.id) : [];
+  const rows = filter.statuses ? all.filter((r) => filter.statuses.includes(r.status)) : all;
+
+  const counts = all.reduce((acc, r) => {
+    acc[r.status] = (acc[r.status] ?? 0) + 1;
+    return acc;
+  }, {});
+
   return (
-    <div>
-      <h1>リプライ</h1>
-      <AccountFilter selected={selected} base="/replies" />
-      <div className="tabs">
-        {[['', 'すべて'], ['new', '未判定'], ['queued', '送信待ち'], ['sent', '送信済み'], ['skipped', '送らない'], ['failed', '失敗']].map(([s, l]) => (
-          <a key={s} href={`/replies?${s ? `status=${s}&` : ''}${selected ? `account=${selected.id}` : ''}`} className={(status || '') === s ? 'active' : ''}>{l}</a>
-        ))}
+    <>
+      <div className="page-head">
+        <div>
+          <h1>リプライ</h1>
+          <p className="page-desc">
+            自動返信の対象と、除外した相手を確認できます。除外を取り消せば、次の実行で返信されます。
+          </p>
+          {account && (
+            <p className="stat-note" style={{ marginTop: 4 }}>
+              被り除外のしきい値: この名義（{account.group ?? 'main'}）は
+              <strong> {farmerThreshold(account.group)}名義以上</strong>
+              にコメントした人、または通算3投稿以上にコメントした人を外します。
+            </p>
+          )}
+        </div>
       </div>
-      <div className="card">
-        <table>
-          <thead><tr><th>時刻</th><th>名義</th><th>投稿者</th><th>コメント</th><th>種別</th><th>判定</th><th>状態</th><th></th></tr></thead>
-          <tbody>
-            {replies.map((r) => (
-              <tr key={r.id}>
-                <td>{formatJst(r.timestamp)}{r.arrivedAtNight && <span className="badge"> 深夜</span>}</td>
-                <td>@{r.accountName}</td>
-                <td>{r.username}</td>
-                <td>{r.text || <span className="muted">（{r.mediaType}）</span>}{r.sentText && <div className="muted">→ {r.sentText.slice(0, 80)}</div>}</td>
-                <td>{r.category === 'keyword' ? '合言葉' : '文章'}</td>
-                <td>{r.verdict || '-'}{r.skipReason && <div className="muted">{r.skipReason}</div>}</td>
-                <td><span className={`badge ${r.status === 'sent' ? 'ok' : r.status === 'failed' ? 'danger' : ''}`}>{STATUS_JA[r.status] || r.status}</span></td>
-                <td>
-                  {['new', 'skipped'].includes(r.status) && <form action={setReplyStatusAction}><input type="hidden" name="id" value={r.id} /><input type="hidden" name="status" value="queued" /><SubmitButton className="ghost small">送る</SubmitButton></form>}
-                  {['new', 'queued'].includes(r.status) && <form action={setReplyStatusAction}><input type="hidden" name="id" value={r.id} /><input type="hidden" name="status" value="skipped" /><SubmitButton className="ghost small">送らない</SubmitButton></form>}
-                </td>
-              </tr>
-            ))}
-            {!replies.length && <tr><td colSpan={8} className="muted">ありません</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      <h2>返信テンプレート</h2>
-      <div className="card">
-        <table>
-          <thead><tr><th>名義</th><th>種別</th><th>文面（{'{name}'} は投稿者名、{'{line}'} は誘導先）</th><th></th></tr></thead>
-          <tbody>
-            {templates.map((t) => (
-              <tr key={t.id}><td>{t.accountName ? `@${t.accountName}` : '共通'}</td><td>{t.category}</td><td>{t.text}</td>
-                <td><form action={deleteTemplateAction}><input type="hidden" name="id" value={t.id} /><SubmitButton className="ghost small" confirm="消しますか？">削除</SubmitButton></form></td></tr>
-            ))}
-          </tbody>
-        </table>
-        <form action={addTemplateAction} className="stack" style={{ marginTop: 12 }}>
-          <div className="row">
-            <span><label>名義（空なら共通）</label><select name="accountName" defaultValue=""><option value="">共通</option>{accounts.map((a) => <option key={a.id} value={a.name}>@{a.name}</option>)}</select></span>
-            <span><label>種別</label><select name="category">{REPLY_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></span>
+
+      {dbError && (
+        <div className="notice">
+          <strong>Firestore に接続できていません。</strong>
+          <div style={{ marginTop: 6 }}>{dbError}</div>
+        </div>
+      )}
+
+      {account && !account.autoReply && (
+        <div className="notice">
+          <strong>@{account.name} の自動返信は OFF です。</strong>
+          <div style={{ marginTop: 6 }}>
+            取得と判定は動きますが、返信は送信されません。有効にするには{' '}
+            <code>npm run db:autoreply -- {account.name} on</code>
           </div>
-          <label>文面</label>
-          <textarea name="text" placeholder="{name} 様、このたびはご連絡いただきありがとうございます。鑑定文が2000文字を超えてまいりますので、プロフィールのリンクよりご連絡いただけますでしょうか" />
-          <SubmitButton className="small">追加</SubmitButton>
-        </form>
+        </div>
+      )}
+
+      <div className="filter-row">
+        {FILTERS.map((f) => {
+          const n = f.statuses
+            ? f.statuses.reduce((sum, s) => sum + (counts[s] ?? 0), 0)
+            : all.length;
+          return (
+            <a
+              key={f.key}
+              className="filter-chip"
+              data-active={f.key === filter.key}
+              href={`/replies?account=${selectedId ?? ''}&filter=${f.key}`}
+            >
+              {f.label} {n}
+            </a>
+          );
+        })}
       </div>
-    </div>
+
+      <section className="card">
+        <div className="card-head">
+          <div className="card-title">
+            ✦ {account ? `@${account.name}` : '名義未選択'}
+            <small>
+              {filter.label} {rows.length}件
+            </small>
+          </div>
+        </div>
+
+        {rows.length === 0 ? (
+          <div className="empty">
+            該当するコメントはありません。
+            <br />
+            取得するには <code>npm run replies:collect</code>
+          </div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: 130 }}>受信</th>
+                <th style={{ width: 160 }}>ユーザー</th>
+                <th>コメント</th>
+                <th style={{ width: 190 }}>判定</th>
+                <th style={{ width: 150 }}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <ReplyRow key={r.id} reply={r} received={toJstLabel(r.timestamp)} />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </>
   );
 }

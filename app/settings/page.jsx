@@ -1,79 +1,252 @@
-import { pageContext } from '../_lib/session';
-import { listPersonas, tokenDaysLeft } from '@/lib/server/accounts.mjs';
-import { balanceStatus, getBalance } from '@/lib/server/settings.mjs';
-import { getLines } from '@/lib/server/impressions.mjs';
-import { modeLabel } from '@/lib/server/guard.mjs';
-import { formatJst } from '@/lib/server/time.mjs';
-import { addAccountAction, updateAccountFlagsAction, deleteAccountAction, setBalanceAction, importTokenAction } from '../_actions/settings';
-import SubmitButton from '../_components/SubmitButton';
+import { listAccounts, listPersonas, daysUntil } from '@/lib/server/repo.mjs';
+import { getCurrentUser, filterAccountsForUser, groupAccounts } from '@/lib/server/auth.mjs';
+import { creditStatus, usd, WARN_DAYS } from '@/lib/server/cost.mjs';
+import AddAccountForm from './AddAccountForm';
+import CreditForm from './CreditForm';
+import AccountRow from './AccountRow';
 
 export const dynamic = 'force-dynamic';
 
-export default async function SettingsPage({ searchParams }) {
-  const { session, accounts } = await pageContext(searchParams);
-  const [personas, balance, bal, lines] = await Promise.all([listPersonas(), balanceStatus().catch(() => null), getBalance().catch(() => null), getLines()]);
-  const modes = modeLabel();
+/** 環境変数の設定状況だけを返す（値は出さない）。 */
+function envStatus() {
+  return [
+    { key: 'FIREBASE_PROJECT_ID', label: 'Firebase プロジェクト', set: Boolean(process.env.FIREBASE_PROJECT_ID) },
+    { key: 'FIREBASE_CLIENT_EMAIL', label: 'Firebase サービスアカウント', set: Boolean(process.env.FIREBASE_CLIENT_EMAIL) },
+    { key: 'FIREBASE_PRIVATE_KEY', label: 'Firebase 秘密鍵', set: Boolean(process.env.FIREBASE_PRIVATE_KEY) },
+    { key: 'ANTHROPIC_API_KEY', label: 'Anthropic APIキー（投稿生成）', set: Boolean(process.env.ANTHROPIC_API_KEY) },
+    { key: 'POSTING_MODE', label: '投稿モード', set: process.env.POSTING_MODE === 'live', note: process.env.POSTING_MODE ?? '未設定' },
+    { key: 'REPLY_MODE', label: '返信モード', set: process.env.REPLY_MODE === 'live', note: process.env.REPLY_MODE ?? '未設定' },
+  ];
+}
+
+export default async function SettingsPage() {
+  const user = await getCurrentUser();
+
+  let accounts = [];
+  let groups = [];
+  let personas = [];
+  let dbError = null;
+  try {
+    const [allAccounts, allPersonas] = await Promise.all([listAccounts(), listPersonas()]);
+    accounts = filterAccountsForUser(allAccounts, user);
+    groups = groupAccounts(accounts);
+    // Persona も、その利用者が見られる名義に紐づくものだけに絞る
+    const visible = new Set(accounts.map((a) => a.personaId).filter(Boolean));
+    personas = user.role === 'admin' ? allPersonas : allPersonas.filter((p) => visible.has(p.id));
+  } catch (err) {
+    dbError = err.message;
+  }
+
+  const isAdmin = user.role === 'admin';
+
+  let credit = null;
+  try {
+    credit = await creditStatus();
+  } catch {
+    // 残高の記録が読めなくても、他の設定は表示する
+  }
+
   return (
-    <div>
-      <h1>設定</h1>
-      <p className="muted">POSTING_MODE={modes.posting} / REPLY_MODE={modes.reply}（環境変数）。表示数の線: 悪い&lt;{lines.bad} / 良い≧{lines.good} / バズ≧{lines.buzz}（npm run ops -- lines か相談で変更）</p>
-
-      <h2>名義</h2>
-      {await Promise.all(accounts.map(async (a) => {
-        const days = await tokenDaysLeft(a);
-        return (
-          <div className="card" key={a.id}>
-            <div className="row spread">
-              <b>@{a.name}</b>
-              <span className="muted">group {a.group || 'main'} / threadsUserId {a.threadsUserId || '-'} / トークン {days == null ? '未登録' : `残り ${days} 日（${formatJst(a.tokenExpiresAt)}）`}</span>
-            </div>
-            <form action={updateAccountFlagsAction} className="row" style={{ marginTop: 8 }}>
-              <input type="hidden" name="id" value={a.id} />
-              <label className="inline"><input type="checkbox" name="active" defaultChecked={a.status === 'active'} /> 稼働</label>
-              <label className="inline"><input type="checkbox" name="autoReply" defaultChecked={a.autoReply} /> 自動返信</label>
-              <label className="inline"><input type="checkbox" name="manualOnly" defaultChecked={a.manualOnly} /> 手動承認のみ</label>
-              <label className="inline"><input type="checkbox" name="autoReviewExempt" defaultChecked={a.autoReviewExempt} /> 自動仕分けから外す</label>
-              <SubmitButton className="ghost small">保存</SubmitButton>
-            </form>
-            <details style={{ marginTop: 8 }}>
-              <summary>トークンの取り込み</summary>
-              <form action={importTokenAction} className="row"><input type="hidden" name="id" value={a.id} /><input name="accessToken" placeholder="長期トークン" style={{ flex: 1 }} /><SubmitButton className="ghost small">取り込む</SubmitButton></form>
-            </details>
-            <details style={{ marginTop: 8 }}>
-              <summary className="error">名義の削除（投稿・返信・履歴・カーソル・集計・孤立した Persona を消す）</summary>
-              <form action={deleteAccountAction} className="row"><input type="hidden" name="id" value={a.id} /><input name="confirmName" placeholder={`確認のため ${a.name} と入力`} style={{ width: 240 }} /><SubmitButton className="danger small" confirm="本当に削除しますか？取り消せません。">削除</SubmitButton></form>
-            </details>
-          </div>
-        );
-      }))}
-
-      <h2>名義の追加（トークンの取り込み）</h2>
-      <div className="card">
-        <form action={addAccountAction} className="stack">
-          <label>長期トークン（入れると @ユーザー名と ID を Threads から取る）</label>
-          <input name="accessToken" />
-          <div className="row">
-            <span><label>@ユーザー名（トークン無しなら必須）</label><input name="name" /></span>
-            <span><label>threadsUserId</label><input name="threadsUserId" /></span>
-            {session.role === 'admin' && <span><label>group</label><input name="group" defaultValue="main" /></span>}
-            <span><label>有効日数</label><input name="expiresDays" type="number" defaultValue={60} /></span>
-            <span><label>Persona</label><select name="personaId" defaultValue=""><option value="">あとで</option>{personas.map((p) => <option key={p.id} value={p.id}>{p.name || p.id}</option>)}</select></span>
-          </div>
-          <SubmitButton className="small">追加</SubmitButton>
-        </form>
-        <p className="muted">コマンドなら npm run auth:url → 認可 → npm run auth:exchange → npm run token:import。</p>
+    <>
+      <div className="page-head">
+        <div>
+          <h1>設定</h1>
+          <p className="page-desc">
+            {isAdmin
+              ? 'すべての名義を確認・操作できます。'
+              : `あなたのグループ（${user.group}）の名義だけが表示されます。`}
+          </p>
+        </div>
+        <span className="badge" data-tone={isAdmin ? 'ok' : 'default'}>
+          {user.name}（{isAdmin ? '管理者' : 'メンバー'}）
+        </span>
       </div>
 
-      {session.role === 'admin' && (
-        <>
-          <h2>Anthropic の残高</h2>
-          <div className="card">
-            <p>{balance ? balance.message : '-'} {bal?.updatedAt && <span className="muted">（入力 {formatJst(bal.updatedAt)}: ${bal.balanceUsd}）</span>}</p>
-            <form action={setBalanceAction} className="row"><input name="usd" type="number" step="0.01" placeholder="残高 USD" style={{ width: 160 }} /><SubmitButton className="small">保存</SubmitButton></form>
-            <p className="muted">消費は runs の usage から見積もる。7日で警告、3日で危険。</p>
-          </div>
-        </>
+      {dbError && (
+        <div className="notice">
+          <strong>Firestore に接続できていません。</strong>
+          <div style={{ marginTop: 6 }}>{dbError}</div>
+        </div>
       )}
-    </div>
+
+      <section className="card">
+        <div className="card-head">
+          <div className="card-title">
+            ✦ 名義を追加 <small>トークンを貼り付けるだけで登録できます</small>
+          </div>
+        </div>
+        <AddAccountForm />
+      </section>
+
+      {accounts.length === 0 ? (
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">✦ 連携済みの名義</div>
+          </div>
+          <div className="stat-note">
+            まだありません。上の欄にトークンを貼り付けて追加してください。
+          </div>
+        </section>
+      ) : (
+        // 担当者ごとにカードを分ける。どれが誰の名義かをひと目で分かるようにする
+        groups.map((g) => (
+          <section className="card" key={g.group}>
+            <div className="card-head">
+              <div className="card-title">
+                ✦ {groups.length > 1 ? g.label : '連携済みの名義'}{' '}
+                <small>{g.accounts.length}件</small>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>名義</th>
+                  <th style={{ width: 110 }}>トークン期限</th>
+                  <th style={{ width: 130 }}>Persona</th>
+                  <th style={{ width: 150 }}>担当</th>
+                  <th style={{ width: 320 }}>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {g.accounts.map((a) => (
+                  <AccountRow
+                    key={a.id}
+                    account={a}
+                    days={daysUntil(a.tokenExpiresAt)}
+                    isAdmin={isAdmin}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </section>
+        ))
+      )}
+
+      <section className="card">
+        <div className="card-head">
+          <div className="card-title">
+            ✦ Persona <small>{personas.length}件</small>
+          </div>
+        </div>
+        {personas.length === 0 ? (
+          <div className="stat-note">Persona が未登録です。</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>名前</th>
+                <th>本数 / 時間帯</th>
+                <th>間隔</th>
+              </tr>
+            </thead>
+            <tbody>
+              {personas.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    {p.name}
+                    <div className="post-slot">
+                      <code>{p.id}</code>
+                    </div>
+                  </td>
+                  <td>
+                    {p.postsPerDay ?? '-'}本 / {p.activeWindow ?? '-'}
+                  </td>
+                  <td>{p.minGap ? `${p.minGap}分` : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {isAdmin && credit && (
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">
+              ✦ Anthropic の残高 <small>投稿文の生成に使います</small>
+            </div>
+            {credit.configured && (
+              <span className="badge" data-tone={credit.tone}>
+                残り {usd(credit.remaining)}
+                {credit.daysLeft !== null ? ` ・約${Math.floor(credit.daysLeft)}日ぶん` : ''}
+              </span>
+            )}
+          </div>
+
+          <p className="stat-note" style={{ marginTop: 0 }}>
+            残高を取得できるAPIが無いため、
+            <a href="https://platform.claude.com/settings/billing" target="_blank" rel="noreferrer">
+              Claude Console の請求ページ
+            </a>
+            で見た額をここに入れてください。以降は生成ごとのトークン数から消費を数えて、
+            残り{WARN_DAYS}日を切ったら全体状況に警告を出します。
+          </p>
+
+          <CreditForm credit={credit.credit} />
+
+          {credit.configured && (
+            <table style={{ marginTop: 14 }}>
+              <tbody>
+                <tr>
+                  <td>記録した残高</td>
+                  <td>
+                    {usd(credit.credit)}（{new Date(credit.setAt).toLocaleString('ja-JP')}）
+                  </td>
+                </tr>
+                <tr>
+                  <td>それからの消費</td>
+                  <td>{usd(credit.spent)}</td>
+                </tr>
+                <tr>
+                  <td>1日あたり</td>
+                  <td>{usd(credit.perDay)}</td>
+                </tr>
+                <tr>
+                  <td>残り</td>
+                  <td>
+                    <strong>{usd(credit.remaining)}</strong>
+                    {credit.daysLeft !== null && ` ・ 約${Math.floor(credit.daysLeft)}日ぶん`}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
+
+      {isAdmin && (
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">
+              ✦ 接続情報 <small>値は表示しません。設定の有無のみ確認できます。</small>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>項目</th>
+                <th>環境変数</th>
+                <th>状態</th>
+              </tr>
+            </thead>
+            <tbody>
+              {envStatus().map((e) => (
+                <tr key={e.key}>
+                  <td>{e.label}</td>
+                  <td>
+                    <code>{e.key}</code>
+                  </td>
+                  <td>
+                    <span className="badge" data-tone={e.set ? 'ok' : 'danger'}>
+                      {e.note ?? (e.set ? '設定済み' : '未設定')}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+    </>
   );
 }

@@ -1,26 +1,47 @@
 import './globals.css';
+import { headers } from 'next/headers';
 import Sidebar from './_components/Sidebar';
-import { getSession } from './_lib/session';
-import { listAccountsForSession } from '@/lib/server/accounts.mjs';
+import { listAccounts } from '@/lib/server/repo.mjs';
+import { getCurrentUser, filterAccountsForUser, groupAccounts } from '@/lib/server/auth.mjs';
 
-export const metadata = { title: 'threads-ops2', description: 'Threads 自動運用ツール' };
+export const metadata = {
+  title: 'threads-ops2',
+  description: '公式Threads APIのみで複数名義を運用する管理画面',
+};
+
 export const dynamic = 'force-dynamic';
 
 export default async function RootLayout({ children }) {
-  const session = await getSession();
+  // ログイン画面だけはサイドバーを出さない
+  const pathname = (await headers()).get('x-pathname') ?? '';
+  if (pathname === '/login') {
+    return (
+      <html lang="ja">
+        <body>{children}</body>
+      </html>
+    );
+  }
+
+  // Firestore 未設定でも画面自体は開けるようにする（設定画面で案内を出す）
+  const user = await getCurrentUser();
+
   let accounts = [];
-  if (session) { try { accounts = await listAccountsForSession(session); } catch { accounts = []; } }
+  let groups = [];
+  let dbError = null;
+  try {
+    accounts = filterAccountsForUser(await listAccounts(), user);
+    groups = groupAccounts(accounts);
+  } catch (err) {
+    dbError = err.message;
+  }
+
   return (
     <html lang="ja">
       <body>
-        {session ? (
-          <div className="shell">
-            <Sidebar session={session} accounts={accounts} />
-            <main className="main">{children}</main>
-          </div>
-        ) : (
-          <main className="main main-bare">{children}</main>
-        )}
+        <div className="shell">
+          <Sidebar accounts={accounts} groups={groups} dbError={dbError} user={user} />
+          <main className="main">{children}</main>
+        </div>
       </body>
     </html>
   );

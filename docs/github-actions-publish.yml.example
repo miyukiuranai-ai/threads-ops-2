@@ -1,15 +1,35 @@
-# 5分おきに publish と replies を叩く GitHub Actions の例。
-# Secrets に CRON_URL（https://xxx.vercel.app）と CRON_SECRET を入れる。
-name: threads-ops-2 cron
+name: 投稿実行
+
+# Vercel の無料プランは Cron が1日1回までのため、投稿の実行だけ GitHub Actions から叩く。
+# 20分ごと・日本時間の 04:00〜24:00 に限定して、無料枠（月2000分）に収める。
 on:
   schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
+    - cron: '*/20 19-23 * * *' # UTC 19:00-23:59 = JST 04:00-08:59
+    - cron: '*/20 0-14 * * *' # UTC 00:00-14:59 = JST 09:00-23:59
+  workflow_dispatch: # 手動実行も可能にする
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 jobs:
-  tick:
+  publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: publish
-        run: curl -fsS -m 290 -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" "${{ secrets.CRON_URL }}/api/cron/publish" || true
-      - name: replies
-        run: curl -fsS -m 290 -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" "${{ secrets.CRON_URL }}/api/cron/replies" || true
+      - name: 予定時刻を過ぎた承認済み投稿を実行
+        run: |
+          response=$(curl -sS --max-time 300 -w '\n%{http_code}' \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ vars.APP_URL || 'https://threads-ops-app.vercel.app' }}/api/cron/publish")
+
+          body=$(echo "$response" | sed '$d')
+          status=$(echo "$response" | tail -n1)
+
+          echo "HTTP $status"
+          echo "$body"
+
+          if [ "$status" != "200" ]; then
+            echo "::error::投稿実行に失敗しました (HTTP $status)"
+            exit 1
+          fi

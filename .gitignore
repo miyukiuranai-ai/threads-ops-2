@@ -1,12 +1,22 @@
-node_modules/
-.next/
-out/
-.env
+# secrets
 .env.local
-.env.*.local
-*.log
+.env*.local
+
+# node
+node_modules/
+npm-debug.log*
+
+# misc
 .DS_Store
 .vercel
-service-account*.json
+.next/
+
+# 名義ごとのトークン保管庫（秘密情報）
+accounts.local.json
+
+# 画像ストックの書き出し（別環境へ持っていく作業用。大きいので git に入れない）
+stock-export/
+
+# 鍵ファイル
 sa.json
 *-firebase-adminsdk-*.json

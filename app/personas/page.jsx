@@ -1,61 +1,131 @@
 import Link from 'next/link';
-import { pageContext } from '../_lib/session';
-import { listPersonas } from '@/lib/server/accounts.mjs';
-import { linkPersonaAction } from '../_actions/personas';
-import SubmitButton from '../_components/SubmitButton';
+import { listAccounts, listPersonas } from '@/lib/server/repo.mjs';
+import { getCurrentUser, filterAccountsForUser, groupLabel } from '@/lib/server/auth.mjs';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PersonasPage({ searchParams }) {
-  const { session, accounts, selected } = await pageContext(searchParams);
-  const personas = await listPersonas();
-  const visible = session.role === 'admin' ? personas : personas.filter((p) => accounts.some((a) => a.personaId === p.id));
-  const list = selected ? accounts.filter((a) => a.id === selected.id) : accounts;
+export default async function PersonasPage() {
+  const user = await getCurrentUser();
+
+  let accounts = [];
+  let personas = [];
+  let dbError = null;
+  try {
+    const [allAccounts, allPersonas] = await Promise.all([listAccounts(), listPersonas()]);
+    accounts = filterAccountsForUser(allAccounts, user);
+    const visible = new Set(accounts.map((a) => a.personaId).filter(Boolean));
+    personas = user.role === 'admin' ? allPersonas : allPersonas.filter((p) => visible.has(p.id));
+  } catch (err) {
+    dbError = err.message;
+  }
+
+  const missing = accounts.filter((a) => !a.personaId);
+  const byId = new Map(personas.map((p) => [p.id, p]));
+
   return (
-    <div>
-      <h1>キャラ設定</h1>
-      <div className="card">
-        <table>
-          <thead><tr><th>名義</th><th>Persona</th><th>本数</th><th>構成（dayMix）</th><th>model</th><th></th></tr></thead>
-          <tbody>
-            {list.map((a) => {
-              const p = personas.find((x) => x.id === a.personaId);
-              return (
-                <tr key={a.id}>
-                  <td>@{a.name}</td>
-                  <td>{p ? <Link href={`/personas/${encodeURIComponent(p.id)}`}>{p.name || p.id}</Link> : <span className="muted">未設定</span>}</td>
-                  <td>{p?.postsPerDay || '-'}</td>
-                  <td>{(p?.dayMix || []).join(', ') || '-'}</td>
-                  <td>{p?.model || '-'}</td>
-                  <td>
-                    <div className="row">
-                      <Link className="btn ghost small" href={`/personas/new?account=${a.id}`}>新規作成</Link>
-                      {visible.length > 0 && (
-                        <form action={linkPersonaAction} className="row">
-                          <input type="hidden" name="accountId" value={a.id} />
-                          <select name="personaId" defaultValue={a.personaId || ''} style={{ width: 160 }}>{visible.map((x) => <option key={x.id} value={x.id}>{x.name || x.id}</option>)}</select>
-                          <SubmitButton className="ghost small">紐づけ</SubmitButton>
-                        </form>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <>
+      <div className="page-head">
+        <div>
+          <h1>キャラ設定</h1>
+          <p className="page-desc">
+            名義ごとの人物像と投稿ルールです。ここが決まっていないと投稿文は作られません。
+          </p>
+        </div>
       </div>
-      <h2>Persona 一覧</h2>
-      <div className="grid">
-        {visible.map((p) => (
-          <div className="card" key={p.id}>
-            <b><Link href={`/personas/${encodeURIComponent(p.id)}`}>{p.name || p.id}</Link></b>
-            <p className="muted">{(p.characterDoc || '').slice(0, 120)}</p>
-            <p className="muted">{p.postsPerDay} 本 / 合言葉 {p.askPerDay} / {p.imagePolicy} / {p.model}</p>
+
+      {dbError && (
+        <div className="notice">
+          <strong>Firestore に接続できていません。</strong>
+          <div style={{ marginTop: 6 }}>{dbError}</div>
+        </div>
+      )}
+
+      {missing.length > 0 && (
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">
+              ✦ 設定がまだの名義 <small>{missing.length}件</small>
+            </div>
           </div>
-        ))}
-        {!visible.length && <p className="muted">Persona がありません。名義の行から新規作成してください。</p>}
-      </div>
-    </div>
+          <p className="stat-note" style={{ marginTop: 0 }}>
+            この名義は投稿文が作られません。キャラ設定を作ると、翌日ぶんから生成が始まります。
+          </p>
+          <div className="filter-row" style={{ marginBottom: 0 }}>
+            {missing.map((a) => (
+              <Link key={a.id} className="btn btn-primary" href={`/personas/new?account=${a.id}`}>
+                @{a.name} のキャラ設定を作る
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="card">
+        <div className="card-head">
+          <div className="card-title">
+            ✦ 登録済み <small>{personas.length}件</small>
+          </div>
+        </div>
+
+        {personas.length === 0 ? (
+          <div className="stat-note">まだありません。</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>名前</th>
+                <th>使っている名義</th>
+                <th style={{ width: 150 }}>担当</th>
+                <th style={{ width: 150 }}>本数 / 時間帯</th>
+                <th style={{ width: 110 }}>間隔</th>
+                <th style={{ width: 90 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {personas.map((p) => {
+                const used = accounts.filter((a) => a.personaId === p.id);
+                return (
+                  <tr key={p.id}>
+                    <td>
+                      <strong>{p.name}</strong>
+                      <div className="post-slot">
+                        <code>{p.id}</code>
+                      </div>
+                    </td>
+                    <td>
+                      {used.length ? (
+                        used.map((a) => `@${a.name}`).join(', ')
+                      ) : (
+                        <span className="badge" data-tone="warn">
+                          未使用
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {used.length ? groupLabel(used[0].group) : '-'}
+                    </td>
+                    <td>
+                      {p.postsPerDay ?? '-'}本 / {p.activeWindow ?? '-'}
+                    </td>
+                    <td>{p.minGap ? `${p.minGap}分` : '-'}</td>
+                    <td>
+                      <Link className="btn" href={`/personas/${p.id}`}>
+                        編集
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {byId.size > 0 && (
+        <p className="stat-note">
+          設定を変えても、すでに作られた投稿案は書き換わりません。次の生成（毎日15:30ごろ）から反映されます。
+        </p>
+      )}
+    </>
   );
 }

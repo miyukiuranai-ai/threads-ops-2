@@ -1,94 +1,105 @@
 'use server';
+
 import { revalidatePath } from 'next/cache';
-import { requireSession, assertAccountVisible } from '../_lib/session';
-import { getPost, approvePost, rejectPost, holdPost, editPost, updatePost } from '@/lib/server/posts.mjs';
-import { deletePostedThread } from '@/lib/server/publish.mjs';
-import { recordMedia, findMedia } from '@/lib/server/storage.mjs';
-import { rememberAttached } from '@/lib/server/stock.mjs';
-import { PLACE_IMAGE_TYPES } from '@/lib/server/post-types.mjs';
+import { getDb, COLLECTIONS } from '@/lib/server/firebase.mjs';
+import { invalidate, TAGS } from '@/lib/server/repo.mjs';
+import { alignBodyTime } from '@/lib/server/post-time.mjs';
+import { getCurrentUser, filterAccountsForUser } from '@/lib/server/auth.mjs';
+import { listAccounts } from '@/lib/server/repo.mjs';
+import { deletePostedPost } from '@/lib/server/post-delete.mjs';
 
-async function load(formData) {
-  const session = await requireSession();
-  const id = String(formData.get('id') || '');
-  const post = await getPost(id);
-  if (!post) throw new Error('投稿がありません');
-  await assertAccountVisible(session, post.accountId);
-  return { session, post };
+/** 承認キューで取りうる操作。SPEC の 編集/承認/却下/保留 に対応。 */
+const ALLOWED_STATUS = ['pending', 'approved', 'rejected', 'held'];
+
+async function setStatus(postId, status) {
+  if (!ALLOWED_STATUS.includes(status)) throw new Error(`不正なステータス: ${status}`);
+  await getDb()
+    .collection(COLLECTIONS.posts)
+    .doc(postId)
+    .set({ status, reviewedAt: new Date().toISOString() }, { merge: true });
+  invalidate(TAGS.posts);
+  revalidatePath('/posts');
+  revalidatePath('/');
 }
 
-export async function approveAction(formData) {
-  const { session, post } = await load(formData);
-  if (post.imageRequired && !(post.media || []).length) {
-    await holdPost(post.id, session.user, '画像が未準備');
-  } else {
-    await approvePost(post.id, session.user);
-  }
+export async function approvePost(formData) {
+  await setStatus(formData.get('postId'), 'approved');
+}
+
+export async function rejectPost(formData) {
+  await setStatus(formData.get('postId'), 'rejected');
+}
+
+export async function holdPost(formData) {
+  await setStatus(formData.get('postId'), 'held');
+}
+
+export async function reopenPost(formData) {
+  await setStatus(formData.get('postId'), 'pending');
+}
+
+/** 投稿済みのものを Threads から消す（戻せない）。費用はかからない。 */
+export async function deletePostedThread(formData) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('ログインしてください。');
+  const postId = String(formData.get('postId') ?? '');
+  const snap = await getDb().collection(COLLECTIONS.posts).doc(postId).get();
+  if (!snap.exists) throw new Error('投稿が見つかりません。');
+  const allowed = filterAccountsForUser(await listAccounts(), user);
+  if (!allowed.some((a) => a.id === snap.data().accountId)) throw new Error('その名義は扱えません。');
+  await deletePostedPost({ postId, by: user.name });
+  invalidate(TAGS.posts);
+  revalidatePath('/posts');
+  revalidatePath('/');
+}
+
+/** 本文の編集。編集したら承認待ちに戻す。 */
+export async function updatePostBody(formData) {
+  const postId = formData.get('postId');
+  const body = String(formData.get('body') ?? '').trim();
+  if (!body) throw new Error('本文が空です。');
+  if ([...body].length > 500) throw new Error('本文が500文字を超えています。');
+
+  await getDb()
+    .collection(COLLECTIONS.posts)
+    .doc(postId)
+    .set(
+      { body, status: 'pending', editedAt: new Date().toISOString(), editedByHuman: true },
+      { merge: true }
+    );
+  invalidate(TAGS.posts);
   revalidatePath('/posts');
 }
 
-export async function rejectAction(formData) {
-  const { session, post } = await load(formData);
-  await rejectPost(post.id, session.user, String(formData.get('reason') || '手動で却下'));
-  revalidatePath('/posts');
-}
+/**
+ * 予定時刻の変更（日本時間の "YYYY-MM-DDTHH:MM" を受け取る）。
+ * 本文の冒頭に時刻が書かれていれば、新しい時刻に合わせて書き直す。
+ */
+export async function updateSchedule(formData) {
+  const postId = formData.get('postId');
+  const local = String(formData.get('scheduledAtLocal') ?? '');
+  if (!local) throw new Error('日時が空です。');
 
-export async function holdAction(formData) {
-  const { session, post } = await load(formData);
-  await holdPost(post.id, session.user, String(formData.get('reason') || '保留'));
-  revalidatePath('/posts');
-}
+  // datetime-local の値は日本時間として扱う
+  const iso = new Date(`${local}:00+09:00`).toISOString();
+  const clock = local.slice(11, 16);
 
-export async function editAction(formData) {
-  const { session, post } = await load(formData);
-  await editPost(post.id, {
-    body: String(formData.get('body') ?? post.body),
-    keyword: formData.get('keyword') != null ? String(formData.get('keyword')) : undefined,
-    slot: formData.get('slot') ? String(formData.get('slot')) : undefined,
-    plannedDate: formData.get('plannedDate') ? String(formData.get('plannedDate')) : undefined,
-    imageBrief: formData.get('imageBrief') != null ? String(formData.get('imageBrief')) : undefined,
-    intent: formData.get('intent') != null ? String(formData.get('intent')) : undefined,
-  }, session.user);
-  revalidatePath('/posts');
-}
+  const ref = getDb().collection(COLLECTIONS.posts).doc(postId);
+  const snap = await ref.get();
+  const prev = snap.exists ? snap.data() : {};
+  const aligned = alignBodyTime(prev.body ?? '', clock);
 
-export async function deleteThreadAction(formData) {
-  const { session, post } = await load(formData);
-  await deletePostedThread(post.id, session.user);
+  await ref.set(
+    {
+      scheduledAt: iso,
+      slot: clock,
+      body: aligned.body,
+      editedAt: new Date().toISOString(),
+      // 見送りになっていた投稿は、時刻を直した時点で承認待ちに戻す
+      ...(prev.status === 'missed' ? { status: 'pending', missedReason: null } : {}),
+    },
+    { merge: true }
+  );
+  invalidate(TAGS.posts);
   revalidatePath('/posts');
-}
-
-/** 直接 GCS に PUT したあと、投稿に付ける（指紋で重複を避ける） */
-export async function attachMediaAction({ id, files }) {
-  const session = await requireSession();
-  const post = await getPost(id);
-  if (!post) throw new Error('投稿がありません');
-  await assertAccountVisible(session, post.accountId);
-  const media = [...(post.media || [])];
-  for (const f of files || []) {
-    if (!f?.fingerprint || !f?.path) continue;
-    await recordMedia({ fingerprint: f.fingerprint, path: f.path, kind: f.kind, contentType: f.contentType, bytes: f.bytes, accountId: post.accountId, accountName: post.accountName, postId: post.id });
-    if (!media.some((m) => m.fingerprint === f.fingerprint)) media.push({ fingerprint: f.fingerprint, path: f.path, kind: f.kind, contentType: f.contentType, bytes: f.bytes });
-  }
-  const patch = { media };
-  if (post.status === 'held' && /画像が未準備/.test(post.holdReason || '')) { patch.status = 'pending'; patch.holdReason = null; patch.requeuedAt = new Date().toISOString(); }
-  await updatePost(post.id, patch);
-  // 人が付けた画像を、その名義のストックに残す
-  try {
-    const place = PLACE_IMAGE_TYPES.includes(post.type);
-    await rememberAttached({ accountId: post.accountId, files: media.slice(-files.length), genre: place ? (post.imagePlace || '').split(/\s+/)[0] || '土地' : post.imageGenre || '手付け', note: place ? post.imagePlace || '' : post.imageNote || '', placeSpecific: place ? true : undefined, addedBy: session.user });
-  } catch { /* ストック登録の失敗は投稿に影響させない */ }
-  revalidatePath('/posts');
-  return { ok: true, media };
-}
-
-export async function removeMediaAction(formData) {
-  const { post } = await load(formData);
-  const fp = String(formData.get('fingerprint') || '');
-  await updatePost(post.id, { media: (post.media || []).filter((m) => m.fingerprint !== fp) });
-  revalidatePath('/posts');
-}
-
-export async function mediaExists(fingerprint) {
-  await requireSession();
-  return findMedia(fingerprint);
 }

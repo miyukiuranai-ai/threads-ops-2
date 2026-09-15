@@ -1,25 +1,32 @@
-// 定期実行の入口: generate。CRON_SECRET で認可（Authorization: Bearer か ?key=）。
-import { NextResponse } from 'next/server';
-import { checkCronKey } from '@/lib/server/auth.mjs';
-import { jobGenerate } from '@/lib/server/cron-jobs.mjs';
+// Vercel Cron から呼ばれる投稿案の生成エンドポイント。1日1回、翌日ぶんを作る。
+//
+// 生成の前に、昨日の成績のレポートを作る。
+// レポートで出た「続けること」「やめること」を、その日の生成に渡すため。
+// 分析が投稿に効かないと意味がないので、この順番を崩さないこと。
+import { generateDaily } from '@/lib/server/pipeline.mjs';
+import { generateDailyReport } from '@/lib/server/report.mjs';
+import { isAuthorizedCron } from '@/lib/server/cron-auth.mjs';
 
-export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-async function handle(request) {
-  if (!checkCronKey(request)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+export async function GET(request) {
+  if (!isAuthorizedCron(request)) {
+    return Response.json({ error: '認可されていません。' }, { status: 401 });
+  }
+
   try {
-    const url = new URL(request.url);
-    const opts = {};
-    if (url.searchParams.get('date')) opts.date = url.searchParams.get('date');
-    if (url.searchParams.get('collect')) opts.forceCollect = true;
-    const r = await jobGenerate(opts);
-    return NextResponse.json({ ok: true, runId: r.runId, message: r.message, results: r.results });
-  } catch (e) {
-    return NextResponse.json({ ok: false, error: String(e.message || e) }, { status: 500 });
+    let report = null;
+    try {
+      report = await generateDailyReport({});
+    } catch (err) {
+      // レポートが作れなくても生成は止めない
+      report = { error: err.message };
+    }
+
+    const generated = await generateDaily({});
+    return Response.json({ ...generated, report });
+  } catch (err) {
+    return Response.json({ error: err.message }, { status: 500 });
   }
 }
-
-export const GET = handle;
-export const POST = handle;
