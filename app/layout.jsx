@@ -3,7 +3,7 @@ import Sidebar from './_components/Sidebar';
 import { getSession } from './_lib/session';
 import { listAccountsForSession } from '@/lib/server/accounts.mjs';
 
-export const metadata = { title: 'threads-ops（検証）', description: 'Threads 自動運用ツール 検証環境' };
+export const metadata = { title: 'threads-ops2', description: 'Threads 自動運用ツール' };
 export const dynamic = 'force-dynamic';
 
 export default async function RootLayout({ children }) {

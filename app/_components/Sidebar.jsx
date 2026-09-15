@@ -17,7 +17,7 @@ export default function Sidebar({ session, accounts }) {
   for (const a of accounts) (groups[a.group || 'main'] ||= []).push(a);
   return (
     <aside className="sidebar">
-      <div className="brand">threads-ops（検証）<small>Threads 自動運用・検証環境</small></div>
+      <div className="brand">threads-ops2<small>Threads 自動運用</small></div>
       {Object.entries(groups).map(([g, list]) => (
         <div key={g}>
           <div className="group-title">{g}</div>
