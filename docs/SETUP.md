@@ -111,3 +111,6 @@ GitHub Actions でもよい（`docs/github-actions-publish.yml.example`）。
 - 画面の「全体状況」の「直近のエラー」に定期実行のエラーが出る。
 - Firestore の「複合インデックスが必要」というエラーは出ない設計（問い合わせは等値だけ）。
 - 本家の Firestore・バケット・Cron・Apps Script には一切触れない。
+
+## 補足: Vercel の環境変数はまとめて貼れる
+Vercel の「Environment Variables」の Key 欄に、`.env.local` の中身を丸ごと貼り付けると、行ごとに Key と Value に分かれて入ります。1 つずつ打つ必要はありません。`FIREBASE_PRIVATE_KEY` は引用符付きのままでも動きます。
