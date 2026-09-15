@@ -1,0 +1,49 @@
+{
+  "name": "threads-ops-2",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "auth:url": "node scripts/auth-url.mjs",
+    "auth:exchange": "node scripts/auth-exchange.mjs",
+    "token:import": "node scripts/token-import.mjs",
+    "token:refresh": "node scripts/token-refresh.mjs",
+    "db:setup": "node scripts/db-setup.mjs",
+    "db:check": "node scripts/db-check.mjs",
+    "db:import-accounts": "node scripts/db-import-accounts.mjs",
+    "db:status": "node scripts/db-status.mjs",
+    "db:autoreply": "node scripts/db-autoreply.mjs",
+    "db:maintenance": "node scripts/db-maintenance.mjs",
+    "threads:check": "node scripts/threads-check.mjs",
+    "ai:check": "node scripts/ai-check.mjs",
+    "analyze:fetch": "node scripts/analyze-fetch.mjs",
+    "refs:import": "node scripts/refs-import.mjs",
+    "personas:import": "node scripts/personas-import.mjs",
+    "gen": "node scripts/gen.mjs",
+    "publish": "node scripts/publish.mjs",
+    "replies:gen": "node scripts/replies-gen.mjs",
+    "replies:import": "node scripts/replies-import.mjs",
+    "replies:collect": "node scripts/replies-collect.mjs",
+    "replies:send": "node scripts/replies-send.mjs",
+    "post:test": "node scripts/post-test.mjs",
+    "post:delete": "node scripts/post-delete.mjs",
+    "storage:setup": "node scripts/storage-setup.mjs",
+    "report": "node scripts/report.mjs",
+    "ops": "node scripts/ops.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "firebase-admin": "^14.0.0",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "server-only": "^0.0.1"
+  }
+}

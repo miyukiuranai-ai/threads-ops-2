@@ -1,0 +1,15 @@
+# 5分おきに publish と replies を叩く GitHub Actions の例。
+# Secrets に CRON_URL（https://xxx.vercel.app）と CRON_SECRET を入れる。
+name: threads-ops-2 cron
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: publish
+        run: curl -fsS -m 290 -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" "${{ secrets.CRON_URL }}/api/cron/publish" || true
+      - name: replies
+        run: curl -fsS -m 290 -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" "${{ secrets.CRON_URL }}/api/cron/replies" || true

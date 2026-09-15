@@ -1,0 +1,7 @@
+{
+  "regions": ["hnd1"],
+  "crons": [
+    { "path": "/api/cron/generate", "schedule": "30 6 * * *" },
+    { "path": "/api/cron/refresh-tokens", "schedule": "0 21 * * *" }
+  ]
+}
