@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { getDb, COLLECTIONS } from '@/lib/server/firebase.mjs';
 import { getCurrentUser, filterAccountsForUser } from '@/lib/server/auth.mjs';
 import { listAccounts, invalidate, TAGS } from '@/lib/server/repo.mjs';
@@ -228,4 +229,30 @@ export async function assignPersona(formData) {
   invalidate(TAGS.accounts);
   revalidatePath('/settings');
   revalidatePath('/personas');
+}
+
+/**
+ * キャラ設定を削除する（threads-ops2 で追加）。
+ * どの名義にも使われていないものだけ消せる。使っている名義があれば、先にその名義の設定を作り直すか名義を外す。
+ */
+export async function deletePersona(formData) {
+  const user = await getCurrentUser();
+  const db = getDb();
+  const { accounts, personaIds } = await scopeFor(user);
+
+  const personaId = String(formData.get('personaId') ?? '').trim();
+  if (!personaId) return { error: 'ID がありません。' };
+  if (user.role !== 'admin' && !personaIds.has(personaId)) {
+    return { error: 'このキャラ設定を削除する権限がありません。' };
+  }
+
+  const used = (await listAccounts()).filter((a) => a.personaId === personaId);
+  if (used.length) {
+    return { error: `使っている名義（${used.map((a) => `@${a.name}`).join(', ')}）があるので消せません。` };
+  }
+
+  await db.collection(COLLECTIONS.personas).doc(personaId).delete();
+  invalidate(TAGS.personas);
+  revalidatePath('/personas');
+  redirect('/personas');
 }

@@ -1,10 +1,11 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { listAccounts, listPersonas } from '@/lib/server/repo.mjs';
 import { getCurrentUser, filterAccountsForUser } from '@/lib/server/auth.mjs';
 import { POST_TYPES } from '@/lib/server/generate.mjs';
 import { MODELS } from '@/lib/server/claude.mjs';
 import PersonaForm from '../PersonaForm';
+import DeletePersonaForm from '../DeletePersonaForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +34,12 @@ export default async function PersonaEditPage({ params, searchParams }) {
   }
 
   const persona = allPersonas.find((p) => p.id === id);
-  if (!persona) notFound();
+  if (!persona) {
+    // 名義がこの ID を指しているのに実体が無い（旧データの名残）→ 新規作成へ
+    const orphan = accounts.find((a) => a.personaId === id);
+    if (orphan) redirect(`/personas/new?account=${orphan.id}`);
+    notFound();
+  }
   if (user.role !== 'admin' && !visible.has(persona.id)) notFound();
 
   const used = accounts.filter((a) => a.personaId === persona.id);
@@ -44,6 +50,7 @@ export default async function PersonaEditPage({ params, searchParams }) {
       desc={used.length ? `使っている名義: ${used.map((a) => `@${a.name}`).join(', ')}` : 'まだどの名義にも使われていません。'}
     >
       <PersonaForm persona={persona} typeOptions={typeOptions} modelOptions={modelOptions} />
+      {used.length === 0 && <DeletePersonaForm personaId={persona.id} name={persona.name} />}
     </Page>
   );
 }

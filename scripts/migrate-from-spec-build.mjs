@@ -33,6 +33,16 @@ async function main() {
     }
   }
 
+  // 実体の無いキャラ設定 ID を名義から外す
+  const personaIds = new Set((await db.collection('personas').get()).docs.map((d) => d.id));
+  for (const d of (await db.collection('accounts').get()).docs) {
+    const pid = d.data().personaId;
+    if (pid && !personaIds.has(pid)) {
+      await d.ref.set({ personaId: null, updatedAt: now }, { merge: true });
+      console.log(`accounts: @${d.data().name} の実体の無いキャラ設定 ${pid} を外した`);
+    }
+  }
+
   const tplSnap = await db.collection('replyTemplates').get();
   let removed = 0;
   for (const d of tplSnap.docs) if (!d.data().scope) { await d.ref.delete(); removed += 1; }

@@ -19,8 +19,9 @@ export default async function PersonasPage() {
     dbError = err.message;
   }
 
-  const missing = accounts.filter((a) => !a.personaId);
   const byId = new Map(personas.map((p) => [p.id, p]));
+  // 実体の無い ID を指している名義（旧データの名残）も「まだ」に含める
+  const missing = accounts.filter((a) => !a.personaId || !byId.has(a.personaId));
 
   return (
     <>
