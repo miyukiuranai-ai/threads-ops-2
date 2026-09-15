@@ -11,6 +11,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "env:init": "node scripts/env-init.mjs",
+    "setup:check": "node scripts/setup-check.mjs",
     "auth:url": "node scripts/auth-url.mjs",
     "auth:exchange": "node scripts/auth-exchange.mjs",
     "token:import": "node scripts/token-import.mjs",
