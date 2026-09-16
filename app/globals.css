@@ -1,20 +1,20 @@
 :root {
-  --bg: #111316;          /* 画面の地。ほぼ黒 */
-  --panel: #1b1e23;       /* カード。地より一段明るく */
-  --panel-2: #262a31;     /* カードの中の一段明るい面 */
-  --ink: #f4f4f5;         /* 文字。白に近く */
-  --ink-muted: #b8bec9;   /* 補足の文字。読める明るさに */
-  --line: #3a3f48;        /* 罫線。輪郭が分かる明るさに */
-  --sidebar: #000000;     /* サイドバー。真っ黒 */
-  --sidebar-ink: #f0f0f0;
-  --sidebar-muted: #a9afb9;
-  --accent: #ffffff;      /* ボタン。白 */
-  --accent-ink: #000000;  /* ボタンの文字 */
-  --warn: #f0b95a;
-  --danger: #f07a68;
-  --ok: #8fd39b;
-  --terminal-bg: #000000;
-  --terminal-ink: #e2e2e2;
+  --bg: #f4f6f9;          /* 画面の地。明るい灰白 */
+  --panel: #ffffff;       /* カード。白 */
+  --panel-2: #eef2f7;     /* カードの中の一段落ちた面 */
+  --ink: #1d2430;         /* 文字。濃い紺灰 */
+  --ink-muted: #5c6675;   /* 補足の文字 */
+  --line: #d6dde6;        /* 罫線 */
+  --sidebar: #1f2a3c;     /* サイドバー。濃い紺 */
+  --sidebar-ink: #f1f4f8;
+  --sidebar-muted: #a6b1c2;
+  --accent: #2f5fd6;      /* ボタン。青 */
+  --accent-ink: #ffffff;  /* ボタンの文字 */
+  --warn: #b7791f;
+  --danger: #c53d2e;
+  --ok: #2a8a4a;
+  --terminal-bg: #1d2430;
+  --terminal-ink: #e6ebf2;
   --radius: 10px;
 }
 
@@ -123,7 +123,7 @@ a {
 }
 
 .nav a[data-active="true"] {
-  background: #2a2e36;
+  background: #2f3d55;
   color: var(--sidebar-ink);
   border-left: 3px solid var(--accent);
 }
