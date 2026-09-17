@@ -41,6 +41,7 @@
     "report": "node scripts/report.mjs",
     "stock:export": "node scripts/stock-export.mjs",
     "stock:import": "node scripts/stock-import.mjs",
+    "stock:fill": "node scripts/stock-fill.mjs",
     "ops": "node --env-file=.env.local scripts/ops.mjs"
   },
   "dependencies": {
