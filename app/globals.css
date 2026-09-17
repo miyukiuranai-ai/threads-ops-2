@@ -55,6 +55,9 @@ a {
   position: sticky;
   top: 0;
   height: 100vh;
+  /* 名義が多いときは、右の本文とは別にサイドバーだけで上下に動かせるようにする */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .brand {
@@ -718,6 +721,18 @@ a.btn {
   flex-direction: column;
   align-items: stretch;
   gap: 12px;
+  /* 名義の一覧はここだけで上下に動かす（ページのメニューと利用者の欄は下に残す） */
+  flex-wrap: nowrap; /* 高さを決めたぶんを横に折り返さない（後ろのグループが見えなくなるため） */
+  max-height: 50vh;
+  min-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+  flex: 1 1 auto;
+}
+
+.sidebar .nav,
+.sidebar .sidebar-foot {
+  flex-shrink: 0;
 }
 
 .account-group {
