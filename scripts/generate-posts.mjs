@@ -5,6 +5,7 @@
 // 使い方:
 //   npm run gen -- --account seiran_uranai_          # 1名義（Personaの設定通り）
 //   npm run gen -- --all                             # 稼働中の全名義
+//   npm run gen -- --group keidai                    # その担当（グループ）の稼働中の名義だけ
 //   npm run gen -- --account seiran_uranai_ --dry    # 保存せず表示だけ
 //   npm run gen -- --account seiran_uranai_ --types attract_intro --slots 23:40
 import { loadEnv } from './lib/env.mjs';
@@ -17,6 +18,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--account') args.account = argv[++i];
     else if (a === '--all') args.all = true;
+    else if (a === '--group') args.group = argv[++i];
     else if (a === '--dry') args.dry = true;
     else if (a === '--types') args.types = argv[++i].split(',');
     else if (a === '--slots') args.slots = argv[++i].split(',');
@@ -40,8 +42,8 @@ async function main() {
   loadEnv();
   const args = parseArgs(process.argv.slice(2));
 
-  if (args.all && !args.dry) {
-    const { results } = await generateDaily({ date: args.date });
+  if ((args.all || args.group) && !args.dry) {
+    const { results } = await generateDaily({ date: args.date, group: args.group ?? null });
     for (const r of results) {
       console.log(
         r.result === 'ok'
@@ -53,7 +55,23 @@ async function main() {
     return;
   }
 
-  if (!args.account) throw new Error('--account で名義を指定するか、--all を付けてください。');
+  if (!args.account && !args.group) {
+    throw new Error('--account で名義を、--group で担当を指定するか、--all を付けてください。');
+  }
+
+  // --group --dry は、その担当の名義を1つずつ試し打ちする
+  if (args.group) {
+    const accounts = await listGeneratableAccounts(null, { group: args.group });
+    console.log(`担当 ${args.group}: ${accounts.length}名義\n`);
+    for (const acc of accounts) {
+      const out = await generateForAccount(acc, { types: args.types, slots: args.slots, date: args.date, dry: true });
+      console.log(`@${acc.name} / Persona: ${out.persona.name} / 対象日: ${out.date}`);
+      out.posts.forEach(printPost);
+      console.log('');
+    }
+    console.log('--dry のため保存していません。');
+    return;
+  }
 
   const [account] = await listGeneratableAccounts(args.account);
   const { persona, posts, usage, date, note } = await generateForAccount(account, {

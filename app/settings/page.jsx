@@ -1,8 +1,10 @@
 import { listAccounts, listPersonas, daysUntil } from '@/lib/server/repo.mjs';
 import { getCurrentUser, filterAccountsForUser, groupAccounts } from '@/lib/server/auth.mjs';
 import { creditStatus, usd, WARN_DAYS } from '@/lib/server/cost.mjs';
+import { loadAutoApprove } from '@/lib/server/auto-approve.mjs';
 import AddAccountForm from './AddAccountForm';
 import CreditForm from './CreditForm';
+import AutoApproveForm from './AutoApproveForm';
 import AccountRow from './AccountRow';
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +46,13 @@ export default async function SettingsPage() {
     credit = await creditStatus();
   } catch {
     // 残高の記録が読めなくても、他の設定は表示する
+  }
+
+  let autoApprove = false;
+  try {
+    autoApprove = await loadAutoApprove();
+  } catch {
+    // 設定が読めないときは OFF として出す（実際の生成でも OFF 扱いになる）
   }
 
   return (
@@ -158,6 +167,22 @@ export default async function SettingsPage() {
           </table>
         )}
       </section>
+
+      {isAdmin && (
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">
+              ✦ 投稿の承認 <small>生成した投稿案をそのまま承認済みにするか</small>
+            </div>
+          </div>
+          <p className="stat-note" style={{ marginTop: 0 }}>
+            ON にすると、毎日 15:30 の生成でできた投稿案が承認済みで保存され、予定時刻が来ると投稿されます。
+            画面で本文を直したり却下したりは、これまで通りできます。
+            画像が要るのに素材が無い投稿と、「自動仕分けから外す」にした名義は、ON でも承認待ちのまま止まります。
+          </p>
+          <AutoApproveForm on={autoApprove} postingLive={process.env.POSTING_MODE === 'live'} />
+        </section>
+      )}
 
       {isAdmin && credit && (
         <section className="card">
