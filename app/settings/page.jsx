@@ -78,6 +78,23 @@ export default async function SettingsPage() {
         </div>
       )}
 
+      {isAdmin && (
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">
+              ✦ 投稿の承認 <small>生成した投稿案をそのまま承認済みにするか</small>
+            </div>
+          </div>
+          <p className="stat-note" style={{ marginTop: 0 }}>
+            ON にすると、毎日 15:30 の生成でできた投稿案が承認済みで保存され、予定時刻が来ると投稿されます。
+            すでに承認待ちで残っているものも、5分おきの処理が見つけしだい承認します。
+            画面で本文を直したり却下したりは、これまで通りできます。
+            画像が要るのに素材が無い投稿と、名義ごとの「手動承認のみ」を ON にした名義は、承認待ちのまま止まります。
+          </p>
+          <AutoApproveForm on={autoApprove} postingLive={process.env.POSTING_MODE === 'live'} />
+        </section>
+      )}
+
       <section className="card">
         <div className="card-head">
           <div className="card-title">
@@ -167,22 +184,6 @@ export default async function SettingsPage() {
           </table>
         )}
       </section>
-
-      {isAdmin && (
-        <section className="card">
-          <div className="card-head">
-            <div className="card-title">
-              ✦ 投稿の承認 <small>生成した投稿案をそのまま承認済みにするか</small>
-            </div>
-          </div>
-          <p className="stat-note" style={{ marginTop: 0 }}>
-            ON にすると、毎日 15:30 の生成でできた投稿案が承認済みで保存され、予定時刻が来ると投稿されます。
-            画面で本文を直したり却下したりは、これまで通りできます。
-            画像が要るのに素材が無い投稿と、「自動仕分けから外す」にした名義は、ON でも承認待ちのまま止まります。
-          </p>
-          <AutoApproveForm on={autoApprove} postingLive={process.env.POSTING_MODE === 'live'} />
-        </section>
-      )}
 
       {isAdmin && credit && (
         <section className="card">
