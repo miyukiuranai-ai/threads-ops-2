@@ -5,6 +5,7 @@
 // 5分おきに動いているこの経路に相乗りさせている。
 import { publishDuePosts } from '@/lib/server/publish.mjs';
 import { autoReviewPending, shouldRunNow } from '@/lib/server/auto-review.mjs';
+import { autoApprovePending } from '@/lib/server/auto-approve.mjs';
 import { collectInsights, shouldCollectNow } from '@/lib/server/insights.mjs';
 import { isAuthorizedCron } from '@/lib/server/cron-auth.mjs';
 import { autoDeleteFlops } from '@/lib/server/auto-delete.mjs';
@@ -29,6 +30,15 @@ export async function GET(request) {
         // 仕分けに失敗しても投稿は止めない
         autoReview = { error: err.message };
       }
+    }
+
+    // 自動承認が ON なら、承認待ちで残っている投稿案をここで承認する（設定を ON にする前に作られた分の取りこぼしを防ぐ）
+    let autoApprovedPending = null;
+    try {
+      const r = await autoApprovePending();
+      if (r.approved) autoApprovedPending = r;
+    } catch (err) {
+      autoApprovedPending = { error: err.message };
     }
 
     // 投稿ごとの切り替えで作り直した1本が投稿時刻を迎えていれば、自動で承認してから投稿する
@@ -85,6 +95,7 @@ export async function GET(request) {
       ...(insights ? { insights } : {}),
       ...(flops ? { flops } : {}),
       ...(snapshots ? { snapshots } : {}),
+      ...(autoApprovedPending ? { autoApprovedPending } : {}),
       ...(autoApproved ? { autoApproved } : {}),
       ...(switched ? { switched } : {}),
     });
