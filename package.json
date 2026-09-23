@@ -42,7 +42,8 @@
     "stock:export": "node scripts/stock-export.mjs",
     "stock:import": "node scripts/stock-import.mjs",
     "stock:fill": "node scripts/stock-fill.mjs",
-    "ops": "node --env-file=.env.local scripts/ops.mjs"
+    "ops": "node --env-file=.env.local scripts/ops.mjs",
+    "mix": "node scripts/set-day-mix.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

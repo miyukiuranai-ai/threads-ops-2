@@ -38,6 +38,8 @@ Threads の複数名義を、Threads 公式 API だけで自動運用するツ�
 | キャラ設定の削除 | 使っていないキャラ設定を画面から消せる。本家は消せない |
 | 担当ごとの生成 | `npm run gen -- --group keidai` で、その担当の名義だけまとめて作れる |
 | 既存の投稿案へ画像を後付け | `npm run stock:fill` |
+| 構成を「割合」として扱う | 1日の構成（dayMix）は型の割合。本数が構成の数と違っても、その日の本数に割合で割り振る（属人3＋バズ2で3本の日なら属人2＋バズ1）。属人系に複数の型を並べると日替わりで順ぐりに使う。本家は構成の数がそのまま本数になり、本数が少ない日は先頭の型（バズ寄り）に偏る |
+| 割合をまとめて設定 | `npm run mix -- --accounts 名義1,名義2 --ratio 6:4 --posts 3-4`。`--group 担当` でまとめて、`--dry` で確認だけ、`--reset` で解除 |
 | 最初の設定を助けるコマンド | `npm run env:init`（.env.local を鍵ファイルから作る）、`npm run setup:check`（接続を1つずつ確認）、`npm run db:migrate`（古いデータの形を直す） |
 | 環境変数の確認ページ | `/api/cron/health` で、どの環境変数が入っているかを値を出さずに確認できる |
 
@@ -156,6 +158,7 @@ ON でも承認せず止めるもの:
 | 投稿 | `publish`、`post:test`、`post:delete` |
 | 返信 | `replies:gen`、`replies:import`、`replies:collect`、`replies:send` |
 | データ | `refs:import`、`personas:import`、`stock:export`、`stock:import`、`stock:fill`、`analyze:fetch`、`db:maintenance` |
+| 構成 | `mix -- --accounts 名義1,名義2 --ratio 6:4 --posts 3-4`（`--group` / `--dry` / `--reset`） |
 | 分析・運用 | `report -- --date 日付 --dry`、`ops -- list-drafts / directive / generate / edit-draft / delete-post / persona / lines` |
 
 ## 12. 安全と費用

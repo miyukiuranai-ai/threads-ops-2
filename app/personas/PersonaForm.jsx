@@ -76,8 +76,10 @@ export default function PersonaForm({ persona, account, typeOptions, modelOption
           <span>1日の構成（いまの要望。空欄なら大元のルールどおり）</span>
           <input name="dayMix" defaultValue={(p.dayMix ?? []).join(', ')} placeholder="buzz_engagement, attract_intro" />
           <small>
-            例: 「buzz_engagement, buzz_engagement, attract_intro」＝バズ型2本＋属人型1本。本数はこの数になり、
-            バズ型は早い枠、属人型は遅い枠に入ります。分析しながらいつでも変えて構いません。
+            例: 「buzz_engagement, buzz_engagement, attract_intro」＝バズ型2：属人型1。これは「割合」として使います。
+            上の「1日の本数」がこの数と違っても、その日の本数にこの割合で割り振ります
+            （例: 属人3＋バズ2＝6:4 で 1日3〜4本なら、3本の日は属人2＋バズ1、4本の日は属人2＋バズ2）。
+            属人系に複数の型を並べておくと、日替わりで順ぐりに使います。分析しながらいつでも変えて構いません。
             入っているあいだは落ち込みの自動調整と構成の型より要望を優先します。1日だけ変えるならレポートの返事や相談から。
           </small>
         </label>
