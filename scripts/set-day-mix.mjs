@@ -50,12 +50,24 @@ function parseRatio(text) {
   return { jinin: parts[0] / g, buzz: parts[1] / g };
 }
 
-function buildMix({ jinin, buzz }, jininTypes, buzzTypes) {
+function buildMix(ratio, jininTypes, buzzTypes) {
+  let { jinin, buzz } = ratio;
   for (const t of [...jininTypes, ...buzzTypes]) {
     if (!POST_TYPES[t]) throw new Error(`知らない型です: ${t}`);
   }
   if (jinin > 0 && !jininTypes.length) throw new Error('属人系の型が空です。');
   if (buzz > 0 && !buzzTypes.length) throw new Error('バズ特化の型が空です。');
+
+  // 属人系に複数の型があるときは、どの型も同じだけ使われるように数をそろえる。
+  // 例: 5:5 は約分すると 1:1 になり属人型だけになってしまうので、3:3 に直して
+  // 属人型・素の型・不安煽り型を1本ずつにする。割合（50:50）は変わらない。
+  // 数が増えすぎるとキャラ設定の画面が読みにくくなるので、6本までに収まるときだけそろえる。
+  const per = jininTypes.length;
+  if (jinin > 0 && per > 1 && jinin % per !== 0) {
+    const scale = per / gcd(jinin, per);
+    if (jinin * scale <= 6) { jinin *= scale; buzz *= scale; }
+  }
+
   const mix = [];
   for (let i = 0; i < jinin; i += 1) mix.push(jininTypes[i % jininTypes.length]);
   for (let i = 0; i < buzz; i += 1) mix.push(buzzTypes[i % buzzTypes.length]);
