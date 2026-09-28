@@ -46,6 +46,35 @@ const jstDate = (iso) => new Date(new Date(iso).getTime() + 9 * 3600 * 1000).toI
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 「設定が足りない」せいの失敗かどうかを見分ける。
+ * これは1件だけの問題ではなく全部に同じことが起きるので、続けても意味がない。
+ * 例: Meta アプリに threads_delete の権限が付いていない（code=10）、トークンが切れている。
+ */
+function isSetupProblem(message) {
+  const m = String(message ?? '');
+  return /code=10\b/.test(m)
+    || /does not have permission/i.test(m)
+    || /subcode=33\b/.test(m)
+    || /threads_delete/i.test(m)
+    || /OAuth|access token|Session has expired/i.test(m);
+}
+
+const SETUP_HELP = [
+  '',
+  '★ これは投稿ごとの問題ではなく、設定が足りていません。続けても全部同じ失敗になるので止めました。',
+  '  いちばん多い原因は、Meta のアプリに「投稿の削除（threads_delete）」の権限が付いていないことです。',
+  '',
+  '  直し方:',
+  '   1. Meta for Developers でアプリを開く',
+  '   2. Threads のユースケースの「アクセス許可」に threads_delete を足す',
+  '   3. 7名義ぶんのトークンを取り直す（npm run auth:url → auth:exchange → token:import）',
+  '      ※ 権限を足しただけでは、いま入っているトークンには反映されません。取り直しが要ります',
+  '   4. もう一度この命令を実行する',
+  '',
+  '  何も削除していません。投稿はすべて残っています。',
+].join('\n');
+
 async function main() {
   loadEnv();
   const args = parseArgs(process.argv.slice(2));
@@ -117,7 +146,13 @@ async function main() {
         ok += 1;
         console.log(`  削除 ${String(ok).padStart(4)}/${total}  @${acc.name} ${post.day} ${head}`);
       } catch (err) {
-        // 1件失敗しても残りは続ける（すでに Threads 側で消えている投稿などがあるため）
+        // 設定が足りない失敗は、続けても全部同じになるのですぐ止める
+        if (isSetupProblem(err.message)) {
+          console.log(`  失敗 @${acc.name} ${post.day} ${head} … ${err.message}`);
+          console.log(SETUP_HELP);
+          process.exit(1);
+        }
+        // それ以外は1件失敗しても残りは続ける（すでに Threads 側で消えている投稿などがあるため）
         failed.push({ account: acc.name, day: post.day, head, reason: err.message });
         console.log(`  失敗 ${String(i + 1).padStart(4)}       @${acc.name} ${post.day} ${head} … ${err.message}`);
       }
