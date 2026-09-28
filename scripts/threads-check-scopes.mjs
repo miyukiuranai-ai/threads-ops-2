@@ -54,37 +54,14 @@ async function probe(account) {
     results.threads_read_replies = 'スキップ（投稿が無い）';
   }
 
-  // threads_delete: 投稿の削除
-  // 実際には消さない。存在しないID「0」に削除を投げて、返ってくるエラーの種類で見分ける。
-  //   「アプリに権限が無い」(code=10) なら権限なし
-  //   「そんな投稿は無い」(code=100 / subcode=33) なら権限はある
-  results.threads_delete = await probeDelete(accessToken);
+  // threads_delete（投稿の削除）はここでは確かめられない。
+  // 存在しないIDへ削除を投げても、権限を見る前に「そんな投稿は無い」で弾かれるため、
+  // 権限が無くても OK に見えてしまう。実際に1本消してみるしかない:
+  //   npm run posts:purge -- --accounts 名義 --limit 1 --yes
 
   return results;
 }
 
-/** 削除の権限があるかを、存在しないIDへの削除で確かめる（何も消えない）。 */
-async function probeDelete(accessToken) {
-  const url = new URL('https://graph.threads.net/v1.0/0');
-  url.searchParams.set('access_token', accessToken);
-  let body;
-  try {
-    const res = await fetch(url, { method: 'DELETE' });
-    body = await res.json().catch(() => ({}));
-  } catch (err) {
-    return `確認できません (${err.message})`;
-  }
-  const err = body?.error ?? {};
-  const message = String(err.message ?? '');
-  if (err.code === 10 || /does not have permission/i.test(message)) {
-    return 'NG (アプリに threads_delete の権限が乗っていません。権限を足してトークンを取り直してください)';
-  }
-  if (err.code === 100 || err.error_subcode === 33 || /does not exist/i.test(message)) {
-    return 'OK (削除できます)';
-  }
-  if (!body?.error) return 'OK (削除できます)';
-  return `不明 (${message || JSON.stringify(err)})`;
-}
 
 async function main() {
   loadEnv();
